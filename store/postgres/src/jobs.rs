@@ -14,6 +14,10 @@ pub fn register(runner: &mut Runner, store: Arc<Store>) {
         Arc::new(VacuumDeploymentsJob::new(store.subgraph_store())),
         Duration::from_secs(60),
     );
+    runner.register(
+        Arc::new(MirrorPrimary::new(store.subgraph_store())),
+        Duration::from_secs(300),
+    );
 }
 
 /// A job that vacuums `subgraphs.subgraph_deployment`. With a large number
@@ -45,5 +49,26 @@ impl Job for VacuumDeploymentsJob {
                 );
             }
         }
+    }
+}
+
+struct MirrorPrimary {
+    store: Arc<SubgraphStore>,
+}
+
+impl MirrorPrimary {
+    fn new(store: Arc<SubgraphStore>) -> MirrorPrimary {
+        MirrorPrimary { store }
+    }
+}
+
+#[async_trait]
+impl Job for MirrorPrimary {
+    fn name(&self) -> &str {
+        "Reconcile important tables from the primary"
+    }
+
+    async fn run(&self, logger: &Logger) {
+        self.store.mirror_primary_tables(logger);
     }
 }
