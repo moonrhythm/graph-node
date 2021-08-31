@@ -219,7 +219,10 @@ pub struct UnusedDeployment {
 /// A namespace (schema) in the database
 pub struct Namespace(String);
 
+/// The name of the `public` schema in Postgres
 pub const NAMESPACE_PUBLIC: &str = "public";
+/// The name of the `subgraphs` schema in Postgres
+pub const NAMESPACE_SUBGRAPHS: &str = "subgraphs";
 
 impl Namespace {
     pub fn new(s: String) -> Result<Self, String> {
@@ -1058,20 +1061,6 @@ impl<'a> Connection<'a> {
             .transpose()
     }
 
-    pub fn assignments(&self, node: &NodeId) -> Result<Vec<Site>, StoreError> {
-        use deployment_schemas as ds;
-        use subgraph_deployment_assignment as a;
-
-        ds::table
-            .inner_join(a::table.on(a::id.eq(ds::id)))
-            .filter(a::node_id.eq(node.as_str()))
-            .select(ds::all_columns)
-            .load::<Schema>(self.0.as_ref())?
-            .into_iter()
-            .map(|schema| Site::try_from(schema))
-            .collect::<Result<Vec<Site>, _>>()
-    }
-
     pub fn fill_assignments(
         &self,
         mut infos: Vec<status::Info>,
@@ -1425,6 +1414,7 @@ impl Mirror {
         // constraint on `deployment_schemas` and is tiny, therefore it's
         // easiest to just mirror it
         const PUBLIC_TABLES: [&str; 3] = ["chains", "deployment_schemas", "active_copies"];
+        const SUBGRAPHS_TABLES: [&str; 1] = ["subgraph_deployment_assignment"];
 
         fn copy_table(
             conn: &PgConnection,
@@ -1446,6 +1436,11 @@ impl Mirror {
         let tables = PUBLIC_TABLES
             .iter()
             .map(|name| (NAMESPACE_PUBLIC, name))
+            .chain(
+                SUBGRAPHS_TABLES
+                    .iter()
+                    .map(|name| (NAMESPACE_SUBGRAPHS, name)),
+            )
             .map(|(nsp, name)| format!("{}.{}", nsp, name))
             .join(", ");
         let query = format!("truncate table {};", tables);
@@ -1459,6 +1454,14 @@ impl Mirror {
                 table_name,
             )?;
         }
+        for table_name in SUBGRAPHS_TABLES {
+            copy_table(
+                conn,
+                &ForeignServer::metadata_schema(&*PRIMARY_SHARD),
+                NAMESPACE_SUBGRAPHS,
+                table_name,
+            )?;
+        }
         Ok(())
     }
 
@@ -1468,5 +1471,21 @@ impl Mirror {
         // Will not panic since the constructor ensures we always have a
         // primary
         &self.pools[0]
+    }
+
+    pub fn assignments(&self, node: &NodeId) -> Result<Vec<Site>, StoreError> {
+        self.read(|conn| {
+            use deployment_schemas as ds;
+            use subgraph_deployment_assignment as a;
+
+            ds::table
+                .inner_join(a::table.on(a::id.eq(ds::id)))
+                .filter(a::node_id.eq(node.as_str()))
+                .select(ds::all_columns)
+                .load::<Schema>(conn)?
+                .into_iter()
+                .map(|schema| Site::try_from(schema))
+                .collect::<Result<Vec<Site>, _>>()
+        })
     }
 }
