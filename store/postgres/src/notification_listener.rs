@@ -4,8 +4,10 @@ use diesel::sql_types::Text;
 use graph::prelude::tokio::sync::mpsc::error::SendTimeoutError;
 use graph::util::backoff::ExponentialBackoff;
 use lazy_static::lazy_static;
+use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres::Notification;
-use postgres::{fallible_iterator::FallibleIterator, Client, NoTls};
+use postgres::{fallible_iterator::FallibleIterator, Client};
+use postgres_openssl::MakeTlsConnector;
 use std::env;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -144,7 +146,13 @@ impl NotificationListener {
             let mut backoff =
                 ExponentialBackoff::new(Duration::from_secs(1), Duration::from_secs(30));
             loop {
-                let res = Client::connect(postgres_url, NoTls).and_then(|mut conn| {
+                let mut builder = SslConnector::builder(SslMethod::tls())
+                    .expect("failed to create ssl connector builder");
+                builder.set_verify(SslVerifyMode::NONE);
+
+                let connector = MakeTlsConnector::new(builder.build());
+
+                let res = Client::connect(postgres_url, connector).and_then(|mut conn| {
                     conn.execute(format!("LISTEN {}", channel_name).as_str(), &[])?;
                     Ok(conn)
                 });
