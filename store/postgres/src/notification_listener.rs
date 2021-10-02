@@ -2,8 +2,10 @@ use crate::functions::pg_notify;
 use diesel::pg::PgConnection;
 use diesel::select;
 use lazy_static::lazy_static;
+use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres::Notification;
-use postgres::{fallible_iterator::FallibleIterator, Client, NoTls};
+use postgres::{fallible_iterator::FallibleIterator, Client};
+use postgres_openssl::MakeTlsConnector;
 use std::env;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -126,8 +128,14 @@ impl NotificationListener {
         let worker_handle = thread::spawn(move || {
             // We exit the process on panic so unwind safety is irrelevant.
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                let mut builder = SslConnector::builder(SslMethod::tls())
+                    .expect("failed to create ssl connector builder");
+                builder.set_verify(SslVerifyMode::NONE);
+
+                let connector = MakeTlsConnector::new(builder.build());
+
                 // Connect to Postgres
-                let mut conn = Client::connect(postgres_url.as_str(), NoTls)
+                let mut conn = Client::connect(postgres_url.as_str(), connector)
                     .expect("failed to connect notification listener to Postgres");
 
                 // Subscribe to the notification channel in Postgres
