@@ -133,6 +133,8 @@ const GETH_ETH_CALL_ERRORS: &[&str] = &[
     "stack limit reached 1024",
     // See f0af4ab0-6b7c-4b68-9141-5b79346a5f61 for why the gas limit is considered deterministic.
     "out of gas",
+    // emerald, https://github.com/oasisprotocol/emerald-web3-gateway/blob/4f2a2e28279c509cf03e823e6522f177beda0a16/rpc/eth/api.go#L52
+    "reverted: ",
 ];
 
 impl CheapClone for EthereumAdapter {
